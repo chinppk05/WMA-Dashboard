@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WMA Data Dashboard</title>
+    <!-- Font Prompt -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- CSS -->
+    <link rel="stylesheet" href="/styles.css" />
+    <!-- Leaflet CSS -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <img src="/wma-logo.png" alt="WMA Logo" />
+      </div>
+    </header>
+
+    <!-- Dashboard -->
+    <div class="dashboard">
+      <div class="card" onclick="showContent('center')">
+        <h3>ศูนย์บริหารจัดการคุณภาพน้ำ</h3>
+        <p>จำนวน <span class="highlight">55</span> ศูนย์</p>
+      </div>
+      <div class="card" onclick="showContent('quality')">
+        <h3>ค่าคุณภาพน้ำเสียวันนี้</h3>
+        <p>ผ่านเกณฑ์ <span class="highlight">38</span> ศูนย์</p>
+        <p style="font-size: 12px; color: rgb(157, 173, 173)">
+          ** ค่าออกซิกเจนละลายน้ำ DO มากกว่า 2 mg/l **
+        </p>
+      </div>
+      <div class="card" onclick="showContent('volume')">
+        <h3>ปริมาณน้ำเสียวันนี้</h3>
+        <p><span class="highlight">59,352</span> ลบ.ม.</p>
+      </div>
+      <div class="card" onclick="showContent('solar')">
+        <h3>พลังงานแสงอาทิตย์วันนี้</h3>
+        <p><span class="highlight">354</span> kWh</p>
+      </div>
+      <div class="card" onclick="showContent('gas')">
+        <h3>ปริมาณการปล่อยก๊าซเรือนกระจก</h3>
+        <p><span class="highlight">9,999</span> kgCO<sub>2</sub>e/ปี</p>
+      </div>
+    </div>
+
+    <!-- Map Section -->
+    <div class="map-section">
+      <div class="map-container">
+        <div id="map"></div>
+      </div>
+      <div class="placeholder" id="placeholder">
+        <h2>เลือกข้อมูลเพื่อแสดง</h2>
+        <canvas id="chartCanvas" style="display: none"></canvas>
+      </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+      let chartInstance = null;
+
+      // ฟังก์ชันโหลดข้อมูลจาก JSON
+      function loadData() {
+        return fetch("/data.json") // ระบุ path ของไฟล์ JSON
+          .then((response) => response.json())
+          .catch((error) => {
+            console.error("Error loading JSON:", error);
+            return null;
+          });
+      }
+
+      // ฟังก์ชัน Generate HTML สำหรับข้อมูล
+      function generateContentHTML(contentArray) {
+        return contentArray
+          .map(
+            (item) => `
+        <div class="data-row">
+          <span class="data-label">${item.label}</span>
+          <span class="data-value">${item.value}</span>
+        </div>
+      `
+          )
+          .join("");
+      }
+
+      // ฟังก์ชันสร้าง Chart
+      function updateChart(
+        chartType,
+        labels,
+        data,
+        title,
+        backgroundColors,
+        borderColors
+      ) {
+        if (chartInstance) chartInstance.destroy(); // ลบ Chart เก่า
+
+        const ctx = document.getElementById("chartCanvas").getContext("2d");
+
+        // สร้าง Gradient สีฟ้าสำหรับ Line Area
+        let gradient = null;
+        if (chartType === "line") {
+          gradient = ctx.createLinearGradient(0, 0, 0, 400); // ไล่สีจากบนลงล่าง
+          gradient.addColorStop(0, "rgba(54, 162, 235, 0.7)"); // สีฟ้าสว่าง (ด้านบน)
+          gradient.addColorStop(1, "rgba(54, 162, 235, 0)"); // โปร่งใส (ด้านล่าง)
+        }
+        chartInstance = new Chart(ctx, {
+          type: chartType,
+          data: {
+            labels,
+            datasets: [
+              {
+                label: title,
+                data,
+                backgroundColor:
+                  chartType === "line" ? gradient : backgroundColors, // ใช้ Gradient เฉพาะ Line Area
+                borderColor: borderColors || "rgba(54, 162, 235, 1)", // สีเส้นกราฟ
+                borderWidth: 2, // ความหนาของเส้น
+                fill: chartType === "line", // เติมพื้นที่ใต้เส้นเฉพาะ Line Area
+                tension: 0.4, // เพิ่มความโค้งมนของเส้น
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: true,
+              },
+            },
+          },
+          scales: {
+            x: {
+              grid: {
+                display: false, // ซ่อนกริดแนวนอน
+              },
+            },
+            y: {
+              grid: {
+                color: "rgba(200, 200, 200, 0.2)", // เส้นกริดแนวตั้ง
+              },
+            },
+          },
+        });
+      }
+
+      // ฟังก์ชันแสดงข้อมูลสำหรับ Card
+      function showContent(type) {
+        const placeholder = document.getElementById("placeholder");
+        loadData().then((data) => {
+          if (!data || !data[type]) {
+            console.error("ไม่มีข้อมูลสำหรับประเภทนี้:", type);
+            return;
+          }
+
+          const selectedData = data[type];
+
+          if (chartInstance) chartInstance.destroy(); // ลบ Chart เก่า
+
+          // อัปเดต Placeholder
+          placeholder.innerHTML = `
+      <div class="content">
+        <h2>${selectedData.title}</h2>
+        ${generateContentHTML(selectedData.content)}
+      </div>
+      <div class="chart-container">
+        <canvas id="chartCanvas"></canvas>
+      </div>
+    `;
+
+          // อัปเดต Chart โดยส่ง backgroundColors และ borderColors จาก JSON
+          updateChart(
+            selectedData.chartType,
+            selectedData.labels,
+            selectedData.chartData,
+            selectedData.title,
+            selectedData.backgroundColors, // ส่ง backgroundColors
+            selectedData.borderColors // ส่ง borderColors
+          );
+        });
+      }
+
+      // ฟังก์ชันแสดงข้อมูลสำหรับ Marker
+      const sharedImageURL = "/dspot-logo.png"; // URL หรือ Path ของรูปภาพที่ต้องการใช้
+
+      function showContentFromJSON(markerData, isFromLocations2 = false) {
+        const placeholder = document.getElementById("placeholder");
+
+        // ลบ Chart เก่าถ้ามี
+        if (chartInstance) chartInstance.destroy();
+
+        // ตรวจสอบว่าเป็นข้อมูลจาก locations2.json หรือไม่
+        if (isFromLocations2) {
+          // แสดงรูปภาพแทน Chart
+          placeholder.innerHTML = `
+      <div class="content">
+        <h2>${markerData.title}</h2>
+        <div>${markerData.content}</div>
+        <div class="image-container">
+          <img src="${sharedImageURL}" alt="${markerData.title}" style="width: 100%; max-height: 200px; object-fit: contain; margin-top:25%;"/>
+        </div>
+      </div>
+    `;
+        } else {
+          // แสดง Chart ปกติ
+          placeholder.innerHTML = `
+      <div class="content">
+        <h2>${markerData.title}</h2>
+        <div>${markerData.content}</div>
+      </div>
+      <div class="chart-container">
+        <canvas id="chartCanvas"></canvas>
+      </div>
+    `;
+
+          // อัปเดต Chart
+          updateChart(
+            markerData.chartType,
+            markerData.labels,
+            markerData.chartData,
+            markerData.title
+          );
+        }
+      }
+
+      // Map และ Marker
+      const map = L.map("map").setView([13.736717, 100.523186], 6);
+      L.tileLayer(
+        "https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoiY2hpbnBwazA1IiwiYSI6ImNseGt5NGcydzA3MWsyaXM4MjJkdmJxcXMifQ.XjqpXWcBTZV38oudXbVXmw"
+      ).addTo(map);
+
+      // กำหนด Icon 2 แบบ
+      const iconType1 = L.icon({
+        iconUrl: "/wma.png",
+        iconSize: [30, 30],
+        iconAnchor: [15, 45],
+        popupAnchor: [0, -45],
+      });
+
+      const iconType2 = L.icon({
+        iconUrl: "/dspot.png",
+        iconSize: [30, 30],
+        iconAnchor: [15, 45],
+        popupAnchor: [0, -45],
+      });
+      // ฟังก์ชันสำหรับสร้าง Control ฟิลเตอร์บนแผนที่
+      const FilterControl = L.Control.extend({
+        options: { position: "topright" }, // ตำแหน่งของปุ่มฟิลเตอร์
+
+        onAdd: function (map) {
+          const container = L.DomUtil.create(
+            "div",
+            "leaflet-bar leaflet-control leaflet-control-custom"
+          );
+
+          // สร้าง HTML ปุ่มฟิลเตอร์
+          container.innerHTML = `
+      <button id="filter-locations1" class="filter-btn">WMA</button>
+      <button id="filter-locations2" class="filter-btn">DSPOT</button>
+      <button id="filter-all" class="filter-btn">ทั้งหมด</button>
+    `;
+
+          // หยุดการ Propagate Event ของ Map (ไม่ให้แผนที่ขยับเมื่อคลิก)
+          L.DomEvent.disableClickPropagation(container);
+
+          return container;
+        },
+      });
+
+      // เพิ่ม Control ลงในแผนที่
+      map.addControl(new FilterControl());
+
+      // ตัวแปรเก็บ Markers
+      let markersLocations1 = [];
+      let markersLocations2 = [];
+
+      // โหลด Marker จาก JSON แต่ละไฟล์
+      function loadMarkers(
+        jsonFile,
+        iconType,
+        markersArray,
+        isFromLocations2 = false
+      ) {
+        fetch(jsonFile)
+          .then((response) => response.json())
+          .then((locations) => {
+            locations.forEach((markerData) => {
+              const marker = L.marker([markerData.lat, markerData.lng], {
+                icon: iconType,
+              }).addTo(map);
+
+              // เพิ่ม Popup แสดงชื่อ
+              const popupContent = `<b>${markerData.title}</b>`;
+              marker.bindPopup(popupContent);
+
+              // Event เมื่อคลิกที่ Marker
+              marker.on("click", () => {
+                // แสดง Popup
+                marker.openPopup();
+
+                // แสดงข้อมูลใน Placeholder พร้อม flag isFromLocations2
+                showContentFromJSON(markerData, isFromLocations2);
+              });
+
+              // เก็บ Marker ใน Array
+              markersArray.push(marker);
+            });
+          })
+          .catch((error) => console.error("Error loading JSON:", error));
+      }
+
+      // โหลด Marker ทั้ง 2 ไฟล์
+      loadMarkers("/locations1.json", iconType1, markersLocations1); // สำหรับ locations1.json (Chart ปกติ)
+      loadMarkers("/locations2.json", iconType2, markersLocations2, true); // สำหรับ locations2.json (แสดงรูปภาพแทน)
+
+      // ฟังก์ชันสำหรับจัดการฟิลเตอร์
+      function toggleMarkers(markers, show) {
+        markers.forEach((marker) => {
+          if (show) {
+            map.addLayer(marker); // แสดง Marker
+          } else {
+            map.removeLayer(marker); // ซ่อน Marker
+          }
+        });
+      }
+
+      // Event Listener สำหรับปุ่มฟิลเตอร์
+      document
+        .getElementById("filter-locations1")
+        .addEventListener("click", () => {
+          toggleMarkers(markersLocations1, true); // แสดง Locations 1
+          toggleMarkers(markersLocations2, false); // ซ่อน Locations 2
+        });
+
+      document
+        .getElementById("filter-locations2")
+        .addEventListener("click", () => {
+          toggleMarkers(markersLocations1, false); // ซ่อน Locations 1
+          toggleMarkers(markersLocations2, true); // แสดง Locations 2
+        });
+
+      document.getElementById("filter-all").addEventListener("click", () => {
+        toggleMarkers(markersLocations1, true); // แสดง Locations 1
+        toggleMarkers(markersLocations2, true); // แสดง Locations 2
+      });
+      // เพิ่มการ Active ให้กับ Card
+      document.querySelectorAll(".card").forEach((card) => {
+        card.addEventListener("click", () => {
+          document
+            .querySelectorAll(".card")
+            .forEach((c) => c.classList.remove("active"));
+          card.classList.add("active");
+        });
+      });
+    </script>
+  </body>
+</html>
